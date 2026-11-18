@@ -34,11 +34,22 @@ def ai_decide(facing, allow):
             f':CardValue (CallFunction|FinalValue :Card {OCARD}) :UnseenAverage (CallFunction|OpponentUnseenAverage))')
 
 
-PROMPT_OPEN = cat(q('Stake: '), i(STAKE), q('    [R] Raise    [C] Hold'))
-PROMPT_OPEN_NORAISE = cat(q('Stake: '), i(STAKE), q('    [C] Hold'))
-PROMPT_FACING = cat(q('He pushes a candle forward. Stake: '), i(STAKE), q('    [C] Call    [F] Fold    [R] Re-raise'))
-PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward. Stake: '), i(STAKE), q('    [C] Call    [F] Fold'))
-PROMPT_RERAISED = cat(q('He raises again! Stake: '), i(STAKE), q('    [C] Call    [F] Fold'))
+def W(expr):
+    """Number as a word (the HUD font has no digits)."""
+    return f'(CallFunction|NumberWord :N {expr})'
+
+
+def CN(expr):
+    """'one candle' / 'three candles'."""
+    return f'(CallFunction|CandlesText :N {expr})'
+
+
+NL = chr(10)
+PROMPT_OPEN = cat(q('At stake  '), CN(STAKE), q('        R  Raise        C  Hold'))
+PROMPT_OPEN_NORAISE = cat(q('At stake  '), CN(STAKE), q('        C  Hold'))
+PROMPT_FACING = cat(q('He pushes a candle forward' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold        R  Raise again'))
+PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold'))
+PROMPT_RERAISED = cat(q('He raises again' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold'))
 
 FLIP = """
   (Class|CardBP|SetTargetRelativeRotation "90.000000,180.000000,0.000000" pc)
@@ -49,6 +60,10 @@ FLIP = """
   (CallFunction|SpawnCardNumbers)"""
 
 FUNCS = {}
+FUNCS['NumberWord'] = """(fn NumberWord (N)
+  (return (Utilities|Array|Get(acopy) (Variables|Default|GetNumberWords) (Math|Integer|Clamp(Integer) N 0 30))))"""
+FUNCS['CandlesText'] = """(fn CandlesText (N)
+  (return (Utilities|String|Append (CallFunction|NumberWord :N N) (select (== N 1) " candle" " candles"))))"""
 FUNCS['DestroyPlayerPowerUp'] = """(fn DestroyPlayerPowerUp ()
   (bind player (Variables|Default|GetPlayerREF))
   (bind ap (Class|PlayerBP|GetAppliedPowerUp player))
@@ -138,7 +153,7 @@ EVENTS['BeginWager'] = f"""(event Custom|BeginWager
       (else
         (CallFunction|ShowPrompt :Msg {PROMPT_OPEN_NORAISE})))
     (else
-      (CallFunction|ShowPrompt :Msg "He studies his card...")
+      (CallFunction|ShowPrompt :Msg "He studies his card")
       (Utilities|FlowControl|Delay 1.0)
       (bind ai {ai_decide('false', f'(> {OLIVES} {STAKE})')})
       (if (== ai 1)
@@ -166,14 +181,14 @@ EVENTS['RevealRound'] = f"""(event Custom|RevealRound
   (bind ov (Variables|Default|GetTempB))
   (if (== pv ov)
     (Variables|Default|SetTieCarry (+ (Variables|Default|GetTieCarry) 1))
-    (CallFunction|ShowSummary :Msg {cat(q('A tie at '), i('pv'), q('. Both cards are buried. Next round starts at '), i('(+ 1 (Variables|Default|GetTieCarry))'), q(' candles.'))})
+    (CallFunction|ShowSummary :Msg {cat(q('A tie at '), W('pv'), q(NL + 'Both cards are buried' + NL + 'The next round is for '), CN('(+ 1 (Variables|Default|GetTieCarry))'))})
     (elif (> pv ov)
       (Variables|Default|SetTieCarry 0)
-      (CallFunction|ShowSummary :Msg {cat(q('Your '), i('pv'), q(' beat his '), i('ov'), q('. He loses '), i(STAKE), q(' candle(s).'))})
+      (CallFunction|ShowSummary :Msg {cat(q('Your '), W('pv'), q(' beat his '), W('ov'), q(NL + 'He loses '), CN(STAKE))})
       (CallFunction|LoseLives :IsPlayer false :Amount {STAKE})
       (else
         (Variables|Default|SetTieCarry 0)
-        (CallFunction|ShowSummary :Msg {cat(q('His '), i('ov'), q(' beat your '), i('pv'), q('. You lose '), i(STAKE), q(' candle(s). '), i('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards were still in the deck.'))})
+        (CallFunction|ShowSummary :Msg {cat(q('His '), W('ov'), q(' beat your '), W('pv'), q(NL + 'You lose '), CN(STAKE), q(NL + 'There were still '), W('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards in the deck'))})
         (CallFunction|LoseLives :IsPlayer true :Amount {STAKE}))))
   (CallFunction|CleanupRound))"""
 
@@ -187,10 +202,10 @@ EVENTS['FoldRound'] = f"""(event Custom|FoldRound
   (Variables|Default|SetTempA (CallFunction|FinalValue :Card pc))
   (Variables|Default|SetTempB (CallFunction|FinalValue :Card oc))
   (if (Variables|Default|GetFoldByPlayer)
-    (CallFunction|ShowSummary :Msg {cat(q('You folded. His card was a '), i('(Variables|Default|GetTempB)'), q('.'))})
+    (CallFunction|ShowSummary :Msg {cat(q('You folded' + NL + 'His card was '), W('(Variables|Default|GetTempB)'))})
     (CallFunction|LoseLives :IsPlayer true :Amount 1)
     (else
-      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), i('(Variables|Default|GetTempB)'), q('. Your '), i('(Variables|Default|GetTempA)'), q(' takes a candle.'))})
+      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), W('(Variables|Default|GetTempB)'), q(NL + 'Your '), W('(Variables|Default|GetTempA)'), q(' takes a candle'))})
       (CallFunction|LoseLives :IsPlayer false :Amount 1)))
   (CallFunction|CleanupRound))"""
 
@@ -210,6 +225,9 @@ EVENTS['CleanupRound'] = f"""(event Custom|CleanupRound
     (CallFunction|StartRound)))"""
 
 K.ensure_var(gm, 'PlayerFirst', 'bool')
+K.ensure_var(gm, 'NumberWords', 'string', True)
+K.ensure_fn(gm, 'NumberWord', [('N', 'int')], [('Word', 'string')])
+K.ensure_fn(gm, 'CandlesText', [('N', 'int')], [('Text', 'string')])
 K.ensure_fn(gm, 'DestroyPlayerPowerUp')
 K.ensure_fn(gm, 'DestroyOpponentPowerUp')
 K.compile_bp(gm)
@@ -229,7 +247,8 @@ for name, code in EVENTS.items():
         K.write(gm, 'EventGraph', code, compile=False); print('OK ev', name)
     except Exception as e:
         print('ERR ev', name, repr(e)[:800])
+WORDS = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen','twenty','twenty one','twenty two','twenty three','twenty four','twenty five','twenty six','twenty seven','twenty eight','twenty nine','thirty']
 try:
-    K.compile_bp(gm); print('COMPILED')
+    K.compile_bp(gm); K.set_defaults(gm, {'NumberWords': WORDS}); K.compile_bp(gm); K.save(gm); print('COMPILED+SAVED')
 except Exception as e:
     print('COMPILE ERR', str(e)[:4000])

@@ -74,6 +74,43 @@ def write(bp, graph_name, code, compile=True):
         BT.compile_blueprint(bp)
 
 
+def prune(bp, graph_name, dry_run=False):
+    """Delete nodes not reachable from an entry/event node (via exec flow, plus pure nodes feeding them).
+    Comment nodes are kept. Returns list of deleted node names."""
+    g = BT.get_graph(bp, graph_name)
+    infos = BT.get_node_infos(BT.find_nodes(g))
+    by_name = {str(i.node.get_name()): i for i in infos}
+    entries = {str(i.node.get_name()) for i in BT.get_node_infos(BT.find_nodes(g, entry_points_only=True))}
+    live = set(entries)
+    stack = list(entries)
+    while stack:  # exec flow forward
+        n = by_name.get(stack.pop())
+        if not n:
+            continue
+        for p in n.output_pins:
+            if p.type_id == 'Exec':
+                for c in p.connected_pins:
+                    cn = str(c.node.get_name())
+                    if cn not in live:
+                        live.add(cn); stack.append(cn)
+    stack = list(live)
+    while stack:  # data dependencies backward
+        n = by_name.get(stack.pop())
+        if not n:
+            continue
+        for p in n.input_pins:
+            if p.type_id != 'Exec':
+                for c in p.connected_pins:
+                    cn = str(c.node.get_name())
+                    if cn not in live:
+                        live.add(cn); stack.append(cn)
+    dead = [i for name, i in by_name.items() if name not in live and 'Comment' not in i.type_id]
+    if not dry_run:
+        for i in dead:
+            BT.delete_node(i.node)
+    return [str(i.node.get_name()) for i in dead]
+
+
 def read(bp, graph_name):
     return BT.read_graph_dsl(BT.get_graph(bp, graph_name))
 

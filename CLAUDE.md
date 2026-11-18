@@ -4,94 +4,130 @@ Blueprint-only Unreal Engine **5.8** project (no C++ / no `Source/`). Upgraded f
 most assets are still saved as 5.6 and upgrade on load. Engine install: `B:\UE_5.8`.
 
 **The game:** a first-person, seated, high-stakes card duel ("CardWar"). You sit at a table across from a
-captor/opponent. Each round both sides play one numbered card, the higher value wins, the loser loses a
-life (a candle is blown out). Lose all 3 and a cannon turns and shoots you. Win and you move to the next
-location. Three locations: Courtyard (1) → Elevator (2) → Cave (3) → back to Main Menu.
+captor/opponent. Each round both sides play one numbered card, wager candles (lives), and the higher value
+wins. Lose all 3 candles and a cannon turns and shoots you. Win and you move to the next location.
+Three locations: Courtyard (1) → Elevator (2) → Cave (3) → back to Main Menu.
 
-**Direction:** the jam build is being expanded into a roguelite "descent" (more floors, wagers, items,
-house rules, Steam demo). Proposal and roadmap: [Docs/DESIGN.md](Docs/DESIGN.md). The rules below
-describe what's **currently implemented**, not the target design.
+**Direction:** the jam build is being expanded into a roguelite "descent". Design + roadmap:
+[Docs/DESIGN.md](Docs/DESIGN.md). Current milestone: **M1 core duel**, [Docs/M1_PLAN.md](Docs/M1_PLAN.md),
+on branch `m1-core-duel`. The rules below describe what is **implemented now**.
 
-## Rules (as implemented — source: `CardWar_GM`, `Opponent_BP`, `Card_BP`)
+## Rules (implemented — `CardWar_GM`, `Opponent_BP`, `Card_BP`)
 
-- **Deck:** one shared 40-card deck: values 1–10, four of each (`CardWar_GM.Initial Deck`). Draws remove
-  from it (no replacement).
-- **Hands:** each side is dealt **5 number cards** + **2 power-up cards**.
-- **Power-ups** drawn at random from `Power Up Deck` map: **×2 (Multiply)**, **+5 (Add)**, **+3 (Add)**.
-  `PowerUpType_Enum` also defines Subtract/Divide but they aren't in the deck. A power-up applied to a
-  card sets `Card_BP.modifiedValue` (card shows chains/overlay); comparison uses `modifiedValue` when set,
-  otherwise `cardValue`.
-- **Round:** player drags a card into the play area (`PlayArea_Player_BP`) → `PlayerPlayedCard` →
-  opponent responds (`OpponentPlayCard`) → both cards are presented/flipped (`PresentCards`) →
-  higher value wins → loser's lives −1, `BlowoutCandle` → played cards destroyed, hands re-fanned.
-- **Tie:** prints "TIE", then one card's value is randomly nudged by ±1–3 (clamped 1–100) to break it.
-- **Lives:** 3 each (`Player Lives`, `Opponent Lives`), shown as 6 `LifeCandle_BP` actors in the level
-  (indices 0–2 player, 3–5 opponent; `AssignLifeCandles`).
-- **Game over:** `Cannon_BP.LookAt` swivels to the loser → `ShootLoser` → `General_WBP.GameOver` shows
-  "You Win"/"You Lose" + cannon blast SFX → `Open Level` by current level name.
-- **Opponent AI** (`Opponent_BP.PlayCard`): tracks the average of the cards still unseen
-  (`UpdateCardCountAverage`, `Remaining Card Average`); compares its chosen card to that average to decide
-  whether to spend a power-up; macro `ChoosePowerUpDeck` prefers ×2 on cards **≥ 6** and +N on lower cards,
-  falling back to whichever power-up pile isn't empty.
-- `Power Up Spawn Chance = 5` (1/X) exists on the GM but is currently **unused** by any graph.
+- **Deck:** one shared 40-card deck: values 1–10, four of each (`CardWar_GM.initialDeck`). Draws remove from
+  it. It refills with a fresh 40 when it's empty (`RefillDeck`).
+- **Hands:** each side starts with **5 number cards + 2 power-up cards**. At the start of every round both sides
+  **draw back up to 5 number cards** (`StartRound` → `DrawToFive`).
+- **Power-ups** drawn from the `Power Up Deck` map: **×2**, **+5**, **+3**. Applying one sets `Card_BP.modifiedValue`.
+  `FinalValue(card)` = `modifiedValue` if set, else `cardValue`.
+- **Round flow** (custom events on `CardWar_GM`):
+  `StartRound` (draw, toggle `PlayerFirst`, unlock input) → player drags a card into the play area →
+  `PlayerPlayedCard` → `CardPlay_Sequence` (`PrepareOpponentHand` moves a random number card to index 0,
+  then `Opponent_BP.PlayCard`) → `OpponentPlayCard` → **`BeginWager`** → **`RevealRound`** or **`FoldRound`** →
+  `CleanupRound` → `StartRound` (unless someone is at 0 lives).
+- **Wagers:** stake starts at `1 + TieCarry`. The **first to act alternates** every round (`PlayerFirst`).
+  The first actor **holds** or **raises** (+1). The responder **calls**, **folds** (loses 1, cards shown briefly),
+  or **re-raises once** (+1). You can only raise if your lives > current stake. `WagerState`: 0 none,
+  1 = player opens, 2 = player facing an AI raise, 3 = player facing an AI re-raise.
+- **Reveal:** a held beat if the stake is above 1 → flip → floating numbers → the higher `FinalValue` wins → the loser
+  loses **`Stake` candles** (`LoseLives`). The cannon clicks a notch per raise (`CannonNotch`).
+- **Tie:** both cards are buried and `TieCarry += 1`, so the next round's stake is higher. (The jam's random ±1–3
+  nudge was removed.)
+- **Round summary** (HUD, top): e.g. "His ten beat your six / You lose three candles / There were still
+  fourteen higher cards in the deck".
+- **Lives:** 3 each, shown as 6 `LifeCandle_BP` actors (0–2 player, 3–5 opponent).
+- **Game over:** `Cannon_BP.LookAt` at the loser → `ShootLoser` → `General_WBP.GameOver` → next level / menu.
+- **Opponent AI:** card choice is a random number card. Wager choice: `Opponent_BP.DecideWager` compares its
+  `FinalValue` against `CardWar_GM.OpponentUnseenAverage` (deck + player's hand). It raises at +2 strength
+  or on a bluff (`BluffRate` 0.15), re-raises at +3, calls at −1 or better, otherwise folds. Power-up use is
+  still the jam logic (`PlayCard` + `ChoosePowerUpDeck`, ×2 on cards ≥ 6), using `RemainingCardAverage`,
+  which `StartRound` now sets from `OpponentUnseenAverage`.
+- **Known balance issue:** a raise plus a re-raise can take all 3 candles in round 1. Per DESIGN §5, wagers should
+  unlock from floor 2 (M2).
+- `Power Up Spawn Chance` on the GM is unused. The old `PresentCards` event is unused (kept for reference).
 
-## Controls (`Content/Inputs/IMC_User`, handled in `Player_BP`)
+## Controls (`Player_BP`)
 
-Mouse look (clamped: yaw ±50, pitch −20..5, sensitivity 0.75) • **Left click/drag** number cards into the
-play area • **Right click** power-up cards to apply to a card • **Hold Space** = freelook. Input is locked
-(`bInputLocked`) while a round resolves. Frame rate capped to 120 (`CapFramerate`).
+Mouse look (clamped) • **Left click/drag** number cards into the play area • **Right click** a power-up onto a
+card • **Hold Space** = freelook • **R** raise / re-raise, **C** hold / call, **F** fold (wager keys →
+`CardWar_GM.PlayerWager(Action)`; 0 = hold/call, 1 = raise, 2 = fold). Input is locked (`bInputLocked`) from card
+release until the next `StartRound`.
+
+## HUD (`UI/General_WBP`)
+
+`WagerPrompt_Txt` (bottom) and `Summary_Txt` (top) via `SetPrompt` / `SetSummary` (GM wrappers `ShowPrompt`,
+`ShowSummary`). **The HUD font (CS Aspen Drawn) has NO digits or punctuation**; they render as boxes. Spell
+numbers with `NumberWord` / `CandlesText` and use line breaks instead of punctuation. `csaspendrawn-regular_Font`
+is even worse (no glyphs at all).
 
 ## Level flow
 
 | Map | Game mode | Notes |
 |---|---|---|
 | `Levels/MainMenu_L` (startup + editor default) | `MainMenu_GM` + `MainMenu_Pawn_BP` | 3D menu cards (`MainMenuCard_BP`): Play → `Courtyard_L`, Quit |
-| `Levels/Courtyard_L` — level 1 | project default `CardWar_GM` | snowy temple courtyard, braziers, wind/snow FX; opponent = hooded figure |
-| `Levels/Elevator_L` — level 2 | `CardWar_GM` | moving elevator shaft, `ElevatorCameraShake_CS`; prisoner opponent |
-| `Levels/Cave_L` — level 3 (final) | `CardWar_GM` | mine cave (minecart, crane, gemstones, water drips), chain splines; prisoner opponent; win → MainMenu |
+| `Levels/Courtyard_L`: level 1 | project default `CardWar_GM` | snowy temple courtyard, braziers, wind/snow FX; opponent = hooded figure |
+| `Levels/Elevator_L`: level 2 | `CardWar_GM` | moving elevator shaft, `ElevatorCameraShake_CS`; prisoner opponent |
+| `Levels/Cave_L`: level 3 (final) | `CardWar_GM` | mine cave (minecart, crane, gemstones, water drips), chain splines; prisoner opponent; win → MainMenu |
 | `TestLevel_v2_L`, `Basic_L`, `TestLevel` | — | test/scratch maps |
 
-Next-level routing lives in `Blueprints/v2/UI/General_WBP` (Switch on current level name → `Open Level`).
+Next-level routing lives in `Blueprints/v2/UI/General_WBP` (`GameOver`: switch on current level name → `Open Level`).
 
 ## Where things live
 
-- **`Content/Blueprints/v2/`** — ⭐ the live game. Everything above is here.
-  - `Blueprints/CardWar_GM` — GameModeBase. Owns deck, hands, lives, round flow, win/lose, spawning cards.
-  - `Blueprints/Player_BP` — Pawn: camera, hover line-trace, pickup/release/drag, power-up application, hand light/Niagara.
-  - `Blueprints/Opponent_BP` — AI opponent actor (skeletal mesh, hand slots, AI card/power-up choice).
-  - `Blueprints/Card_BP` — a card: value, modifiedValue, power-up data, state machine
-    (`CardState_Enum`: IdleInHand, Hovered, Dragging, Played, Resolved), fan positioning, chains, text.
-  - `Cannon_BP`, `LifeCandle_BP`, `PlayArea_Player_BP`, `ChainSpline_BP`, `TextRenderCardValue_BP` (big floating value number at reveal).
-  - `MainMenu/` — menu GM, pawn, menu cards. `UI/General_WBP` (HUD, game over, "Hold Space to Freelook"), `UI/MainMenu_UI`.
-- **`Content/Blueprints/*.uasset` (v1)** — **legacy, unused by any game level**: old interaction system
-  (`AC_InteractionTrace`, `BPI_Interaction`, `BP_User`), tie wheel (`BP_TieWheel`, `BP_TieBreakerManager`,
-  `WBP_TieBreaker`), `E_Difficulty` (Easy/Medium/Hard), `E_CardSide` (Player/Dealer). Only `TestLevel` uses them.
-- **`Content/BP_*.uasset` + `NewBlueprint`** (root, ~2 KB each) — **redirectors** left from moves. Fix up redirectors before deleting.
-- `Content/Art/` — meshes/materials/textures; `Cards/` (Card_1..10 MIs, chains/lock/overlay mats),
-  `Characters/` (HoodedFigure, Prisoner_1, Prisoner_2 — Mixamo-rigged), `Hand/` (first-person hand anims:
-  Idle/HoverCards/HoldCards/Powerup), `ParticleSystems/` (snow, wind-snow, cold breath, candle smoke, fire,
-  glowing number), `PostProcess/` (`PPM_ResolutionLimiter` — used in every level; `PPM_8BitColor` — unused).
-- `Content/Audio/` — BGM (Courtyard, Cave, Elevator), BGS ambience, SE (cannon blast, card hover, chains, gun adjust).
-- `Content/Fonts/` — CS Aspen Drawn (hand-drawn display font).
+- **`Content/Blueprints/v2/`**: ⭐ the live game.
+  - `Blueprints/CardWar_GM`: GameModeBase. Deck, hands, lives, round/wager flow, win/lose, spawning cards.
+  - `Blueprints/Player_BP`: Pawn: camera, hover line-trace, pickup/release/drag, power-ups, wager keys.
+  - `Blueprints/Opponent_BP`: AI opponent (mesh, hand slots, card/power-up/wager choice).
+  - `Blueprints/Card_BP`: a card: value, modifiedValue, power-up data, `CardState_Enum`
+    (IdleInHand, Hovered, Dragging, Played, Resolved), fan positioning, chains, text.
+  - `Cannon_BP` (uses Timelines; don't rewrite its graph with the DSL), `LifeCandle_BP`, `PlayArea_Player_BP`,
+    `ChainSpline_BP`, `TextRenderCardValue_BP` (floating value at reveal; destroys itself).
+  - `MainMenu/`: menu GM, pawn, menu cards. `UI/General_WBP` (HUD), `UI/MainMenu_UI`.
+- **`Content/Blueprints/*.uasset` (v1)**: **legacy, unused by any game level** (old interaction system, tie wheel,
+  `E_Difficulty`, `E_CardSide`). Only `TestLevel` uses them.
+- **`Content/BP_*.uasset` + `NewBlueprint`** (root, ~2 KB each): **redirectors**. Fix up before deleting.
+- `Content/Art/`, `Content/Audio/`, `Content/Fonts/`: see the art direction below.
 
 ## Art direction (observed)
 
 Lo-fi retro 3D horror: low internal resolution via post-process resolution limiter, hand-painted textures,
 moody fog, warm firelight (braziers, candles) against cold snow/moon/stars, emissive glowing card numbers,
-chains on powered-up cards, hand-drawn font. Prisoner/captor framing: you gamble for your life.
+chains on powered-up cards, hand-drawn blackletter font. Prisoner/captor framing: you gamble for your life.
 
 ## Rendering / project settings
 
-Forward-ish legacy look: Lumen off (`DynamicGlobalIlluminationMethod=0`, `ReflectionMethod=0`), Nanite off,
-VSM off, static lighting allowed, no AA (`AntiAliasingMethod=0`), auto-exposure off, DX12 SM6.
+Lumen off, Nanite off, VSM off, static lighting allowed, no AA, auto-exposure off, DX12 SM6.
 
 ## Working on this project with Claude
 
-- **Read Blueprints without the editor:** `python Tools/bp_index.py` → `Saved/BlueprintIndex/*.txt`
-  (variables + defaults, components, every graph's nodes and literal pin values; no wire order).
-  Re-run after Blueprint changes. Never `Read`/`Edit` `.uasset`/`.umap` directly — they're binary.
-- **Unreal MCP** (`.mcp.json` → `unreal-mcp` at `http://localhost:8000/mcp`): plugin `ModelContextProtocol`
-  auto-starts with the editor (`Config/DefaultEditorPerProjectUserSettings.ini`). Currently only the
-  `AgentSkillToolset` is exposed. For live Blueprint/actor/property access enable **`EditorToolset`**
-  (and e.g. `UMGToolSet`) in `SnowBlind.uproject`, then restart the editor.
+**Read-only, editor closed or open:** `python Tools/bp_index.py` → `Saved/BlueprintIndex/*.txt` (variables +
+defaults, every graph's nodes and literal pin values, no wires). Never `Read`/`Edit` `.uasset`/`.umap` directly.
+
+**Live editing (editor open):**
+- `Tools/ue/uepy.py <file.py | -c code>` runs Python **inside the running editor** (Python remote execution is
+  enabled locally in `Config/DefaultEngine.ini`; that line is intentionally **not committed**). The editor's
+  Python globals **persist between calls**, so reset any filter variables you set (e.g. `ONLY=None`).
+- `Tools/ue/bpkit.py` (import inside the editor): `ensure_var`, `ensure_fn` (function + params), `write`
+  (DSL → graph, **raises** errors, unlike `BlueprintTools.write_graph_dsl` which swallows them), **`prune`** (delete
+  orphaned nodes: **always prune after rewriting a graph**, because old versions are left behind), `read`, `compile_bp`,
+  `save`, `set_defaults` (CDO). `Tools/ue/m1/*.py` are the M1 build scripts (good examples).
+- **Unreal MCP** (`.mcp.json` → `unreal-mcp`, `http://localhost:8000/mcp`): `EditorToolset` (Blueprint/asset/
+  actor tools + DSL), `UMGToolSet` (widget trees: `AddWidget`, `ToggleWidgetAsVariable`, ...; not exposed to
+  editor Python, so call it via MCP), `LogsToolset`, `EditorAppToolset` (PIE).
+- **Playtest:** load a level + PIE via `LevelEditorSubsystem` (`load_level`, `editor_request_begin_play`), then run
+  `python Tools/ue/m1/playtest.py` (client-side; drives `PlayerPlayedCard` / `PlayerWager` and prints state).
+  Screenshots with UI: console `shot showui` → `Saved/Screenshots/WindowsEditor/`.
+
+**Blueprint DSL gotchas (learned the hard way):**
+- Variables on *another* Blueprint need the full type ID: `Class|CardBP|GetIsPowerUp`, `Class|CardBP|SetIsHeld`, ...
+  (the decompiler prints `|GetbIsPowerUp`, which can't be created). Find IDs with `BT.find_node_types(graph, "...")`.
+- For calls to this Blueprint's own functions (`CallFunction|X`), use `:Keyword` args. A positional arg binds to the hidden `self` pin.
+- **Pure nodes re-evaluate per consumer.** Cache any random/impure result in a variable (`SetTempA` ...) before
+  using it twice, and cache values before you mutate what they're computed from.
+- An impure function call nested inside a `return` expression **never executes**. `bind` it as a statement first.
+- `%` (modulo) fails. `Utilities|IsValid` is the multi-exec macro form only. `Append` takes 2 args (nest it).
+- Keyboard event nodes (`Input|KeyboardEvents|R`) can't be given bodies via DSL. Wire them with `create_node` +
+  `connect_pins` (see `Player_BP` R/C/F).
+- Reading a graph with `read_graph_dsl` dirties the asset (it spawns temp nodes). Don't save unrelated assets just
+  because they show as unsaved.
 - Don't run headless/commandlet Unreal while the editor has the project open.

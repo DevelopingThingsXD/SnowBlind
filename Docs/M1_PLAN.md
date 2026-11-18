@@ -5,6 +5,23 @@ Exit criterion: **one duel is fun to replay 10× in a row and every loss can be 
 
 M1 changes the round flow only. Charms (the existing power-ups) stay as they are. Run state, items, and captor data come in M2.
 
+## Status (2026-11-18)
+
+| Item | Status |
+|---|---|
+| Draw back up to 5 each round, deck refill | ✅ done, playtested |
+| Wager phase (alternating first actor, raise / re-raise / call / fold, lives-capped raises) | ✅ done, playtested (raise, AI re-raise, call, hold) |
+| AI `DecideWager` (strength vs unseen average, `BluffRate`) | ✅ done |
+| Opponent plays a random number card (was always index 0) | ✅ done |
+| Tie: buried + stake carries | ✅ built (not yet hit in a scripted test) |
+| Fold: cards shown, folder loses 1 | ✅ built (not yet hit in a scripted test) |
+| Loser loses `Stake` candles; cannon notch per raise; held beat before high-stake reveal | ✅ done |
+| Loss summary line (spelled-out numbers; the HUD font has no digits) | ✅ done |
+| Prompts as HUD text with keys R / C / F | ✅ done (diegetic candle-pushing input is M2+) |
+| Darkness rules (brightness floor for own cards) | ⏳ not started |
+| Floor gating (no wagers on floor 1) | ⏳ M2. Right now a raise + re-raise can end a duel in round 1 |
+| Human playtest with mouse + keys | ⏳ needs you |
+
 ## Current jam flow (for reference)
 `Player_BP.ReleaseCard` (card dropped on the `PlayerPlayArea` tag) → `CardWar_GM.PlayerPlayedCard` → `OpponentPlayCard`
 (opponent commits) → custom event `CardPlay_Sequence`: delay → `PresentCards` (flip) → compare `modifiedValue`/`cardValue` →
