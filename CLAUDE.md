@@ -29,10 +29,15 @@ on branch `m1-core-duel`. The rules below describe what is **implemented now**.
   The first actor **holds** or **raises** (+1). The responder **calls**, **folds** (loses 1, cards shown briefly),
   or **re-raises once** (+1). You can only raise if your lives > current stake. `WagerState`: 0 none,
   1 = player opens, 2 = player facing an AI raise, 3 = player facing an AI re-raise.
-- **Candles are the chips.** All 6 candles stay lit. When you lose, the candles at stake **slide to the winner's
-  row** and become their lives (`LoseLives(loser, amount)` moves actors between `PlayerLifeCandles` and
-  `OpponentLifeCandles`; `LayoutCandles` places them using the origin and step taken from each level's placed
-  candles in `InitCandleLayout`; `LifeCandle_BP.MoveTo` glides there on Tick). Lives = candle count. 0 candles → cannon.
+- **Stakes = candles, split in two** (`PayStake(LoserIsPlayer, Burn, Give)`):
+  - the **base stake** (`BaseStake` = 1 + `TieCarry`) **burns**: the loser's candle is extinguished
+    (`BlowOutCandle`) and stays on their side as a dark stub (`PlayerDeadCandles` / `OpponentDeadCandles`);
+  - **raised candles** (`Stake − BaseStake`) **slide to the winner's row** and stay lit (they become the winner's lives);
+  - **folding burns 1** of the folder's candles. Lives = lit candle count. 0 lit → cannon. Total light only goes down.
+- **Candle layout:** `InitCandleLayout` takes each side's origin/step from the level's placed candles, plus a
+  perpendicular `CandleRowOffset` pointing toward the player. `SlotPos`: max **4 per row**; slots 5–6 go in a second
+  row, staggered half a step and offset toward the player (clear of the cannon). Each side lists its lit candles first,
+  then its dark stubs (`LayoutCandles`). `LifeCandle_BP.MoveTo` glides there on Tick.
 - **Your played card turns face-up toward you** during the wager (`PlayerPlayedCard`); his stays face-down.
 - **Reveal:** a held beat if the stake is above 1 → flip → floating numbers → the higher `FinalValue` wins → the stake
   moves to the winner. The cannon clicks a notch per raise (`CannonNotch`).
@@ -136,3 +141,7 @@ defaults, every graph's nodes and literal pin values, no wires). Never `Read`/`E
 - Reading a graph with `read_graph_dsl` dirties the asset (it spawns temp nodes). Don't save unrelated assets just
   because they show as unsaved.
 - Don't run headless/commandlet Unreal while the editor has the project open.
+- **Editor hard-lock (2026-11-18):** requesting `shot showui` while the viewport wasn't rendering (shot never written),
+  then ending PIE via `editor_request_end_play` deadlocked the editor during PIE teardown (0% CPU, had to be killed).
+  Only take screenshots when you can confirm the file appears, and never end PIE while a screenshot is pending. Prefer
+  letting the user stop PIE.

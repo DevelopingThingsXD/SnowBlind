@@ -40,16 +40,25 @@ def W(expr):
 
 
 def CN(expr):
-    """'one candle' / 'three candles'."""
-    return f'(CallFunction|CandlesText :N {expr})'
+    """'1 candle' / '3 candles' (pure nodes only, safe inside select)."""
+    return cat(i(expr), f'(select (== {expr} 1) " candle" " candles")')
 
 
 NL = chr(10)
-PROMPT_OPEN = cat(q('Stake: '), CN(STAKE), q('        [R] Raise        [C] Hold'))
-PROMPT_OPEN_NORAISE = cat(q('Stake: '), CN(STAKE), q('        [C] Hold'))
-PROMPT_FACING = cat(q('He pushes a candle forward' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold        [R] Raise again'))
-PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold'))
-PROMPT_RERAISED = cat(q('He raises again' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold'))
+BASE = '(Variables|Default|GetBaseStake)'
+GIVE = f'(- {STAKE} {BASE})'
+STAKE_TEXT = cat(q('Loser burns '), CN(BASE), f'(select (> {GIVE} 0) {cat(q(" and hands over "), i(GIVE))} "")')
+PROMPT_OPEN = cat(STAKE_TEXT, q('        [R] Raise        [C] Hold'))
+PROMPT_OPEN_NORAISE = cat(STAKE_TEXT, q('        [C] Hold'))
+PROMPT_FACING = cat(q('He pushes a candle forward' + NL), STAKE_TEXT, q('        [C] Call        [F] Fold        [R] Raise again'))
+PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward' + NL), STAKE_TEXT, q('        [C] Call        [F] Fold'))
+PROMPT_RERAISED = cat(q('He raises again' + NL), STAKE_TEXT, q('        [C] Call        [F] Fold'))
+BURN_HIS = f'(select (== {BASE} 1) "His candle goes out" {cat(i(BASE), q(" of his candles go out"))})'
+BURN_YOUR = f'(select (== {BASE} 1) "Your candle goes out" {cat(i(BASE), q(" of your candles go out"))})'
+GIVE_TO_YOU = f'(Math|Integer|Min(Integer) {GIVE} (- {OLIVES} {BASE}))'
+GIVE_TO_HIM = f'(Math|Integer|Min(Integer) {GIVE} (- {PLIVES} {BASE}))'
+GIVE_YOU = f'(select (> {GIVE_TO_YOU} 0) {cat(q(NL + "You take "), CN(GIVE_TO_YOU))} "")'
+GIVE_HE = f'(select (> {GIVE_TO_HIM} 0) {cat(q(NL + "He takes "), CN(GIVE_TO_HIM))} "")'
 
 FLIP = """
   (Class|CardBP|SetTargetRelativeRotation "90.000000,180.000000,0.000000" pc)
@@ -62,9 +71,6 @@ FLIP = """
 FUNCS = {}
 FUNCS['NumberWord'] = """(fn NumberWord (N)
   (return (Utilities|Array|Get(acopy) (Variables|Default|GetNumberWords) (Math|Integer|Clamp(Integer) N 0 30))))"""
-FUNCS['CandlesText'] = """(fn CandlesText (N)
-  (bind word (Utilities|String|ToString(Integer) N))
-  (return (Utilities|String|Append word (select (== N 1) " candle" " candles"))))"""
 FUNCS['DestroyPlayerPowerUp'] = """(fn DestroyPlayerPowerUp ()
   (bind player (Variables|Default|GetPlayerREF))
   (bind ap (Class|PlayerBP|GetAppliedPowerUp player))
@@ -146,6 +152,7 @@ EVENTS['StartRound'] = f"""(event Custom|StartRound
 EVENTS['BeginWager'] = f"""(event Custom|BeginWager
   (CallFunction|ShowSummary :Msg "")
   (Variables|Default|SetStake (+ 1 (Variables|Default|GetTieCarry)))
+  (Variables|Default|SetBaseStake (Variables|Default|GetStake))
   (Variables|Default|SetReRaiseUsed false)
   (if (> {STAKE} 1)
     (CallFunction|CannonNotch))
@@ -184,15 +191,15 @@ EVENTS['RevealRound'] = f"""(event Custom|RevealRound
   (bind ov (Variables|Default|GetTempB))
   (if (== pv ov)
     (Variables|Default|SetTieCarry (+ (Variables|Default|GetTieCarry) 1))
-    (CallFunction|ShowSummary :Msg {cat(q('A tie at '), W('pv'), q(NL + 'Both cards are buried' + NL + 'The next round is for '), CN('(+ 1 (Variables|Default|GetTieCarry))'))})
+    (CallFunction|ShowSummary :Msg {cat(q('A tie at '), W('pv'), q(NL + 'Both cards are buried' + NL + 'Next round the loser burns '), CN('(+ 1 (Variables|Default|GetTieCarry))'))})
     (elif (> pv ov)
       (Variables|Default|SetTieCarry 0)
-      (CallFunction|ShowSummary :Msg {cat(q('Your '), W('pv'), q(' beat his '), W('ov'), q(NL + 'You take '), CN(STAKE))})
-      (CallFunction|LoseLives :IsPlayer false :Amount {STAKE})
+      (CallFunction|ShowSummary :Msg {cat(q('Your '), W('pv'), q(' beat his '), W('ov'), q(NL), BURN_HIS, GIVE_YOU)})
+      (CallFunction|PayStake :LoserIsPlayer false :Burn {BASE} :Give {GIVE})
       (else
         (Variables|Default|SetTieCarry 0)
-        (CallFunction|ShowSummary :Msg {cat(q('His '), W('ov'), q(' beat your '), W('pv'), q(NL + 'He takes '), CN(STAKE), q(NL + 'There were still '), W('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards in the deck'))})
-        (CallFunction|LoseLives :IsPlayer true :Amount {STAKE}))))
+        (CallFunction|ShowSummary :Msg {cat(q('His '), W('ov'), q(' beat your '), W('pv'), q(NL), BURN_YOUR, GIVE_HE, q(NL + 'There were still '), W('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards in the deck'))})
+        (CallFunction|PayStake :LoserIsPlayer true :Burn {BASE} :Give {GIVE}))))
   (CallFunction|CleanupRound))"""
 
 EVENTS['FoldRound'] = f"""(event Custom|FoldRound
@@ -205,11 +212,11 @@ EVENTS['FoldRound'] = f"""(event Custom|FoldRound
   (Variables|Default|SetTempA (CallFunction|FinalValue :Card pc))
   (Variables|Default|SetTempB (CallFunction|FinalValue :Card oc))
   (if (Variables|Default|GetFoldByPlayer)
-    (CallFunction|ShowSummary :Msg {cat(q('You folded' + NL + 'His card was '), W('(Variables|Default|GetTempB)'), q(NL + 'He takes 1 candle'))})
-    (CallFunction|LoseLives :IsPlayer true :Amount 1)
+    (CallFunction|ShowSummary :Msg {cat(q('You folded' + NL + 'His card was '), W('(Variables|Default|GetTempB)'), q(NL + 'Your candle goes out'))})
+    (CallFunction|PayStake :LoserIsPlayer true :Burn 1 :Give 0)
     (else
-      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), W('(Variables|Default|GetTempB)'), q(NL + 'Your '), W('(Variables|Default|GetTempA)'), q(NL + 'You take 1 candle'))})
-      (CallFunction|LoseLives :IsPlayer false :Amount 1)))
+      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), W('(Variables|Default|GetTempB)'), q(NL + 'His candle goes out'))})
+      (CallFunction|PayStake :LoserIsPlayer false :Burn 1 :Give 0)))
   (CallFunction|CleanupRound))"""
 
 EVENTS['CleanupRound'] = f"""(event Custom|CleanupRound
@@ -230,7 +237,6 @@ EVENTS['CleanupRound'] = f"""(event Custom|CleanupRound
 K.ensure_var(gm, 'PlayerFirst', 'bool')
 K.ensure_var(gm, 'NumberWords', 'string', True)
 K.ensure_fn(gm, 'NumberWord', [('N', 'int')], [('Word', 'string')])
-K.ensure_fn(gm, 'CandlesText', [('N', 'int')], [('Text', 'string')])
 K.ensure_fn(gm, 'DestroyPlayerPowerUp')
 K.ensure_fn(gm, 'DestroyOpponentPowerUp')
 K.compile_bp(gm)
