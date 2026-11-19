@@ -29,8 +29,13 @@ on branch `m1-core-duel`. The rules below describe what is **implemented now**.
   The first actor **holds** or **raises** (+1). The responder **calls**, **folds** (loses 1, cards shown briefly),
   or **re-raises once** (+1). You can only raise if your lives > current stake. `WagerState`: 0 none,
   1 = player opens, 2 = player facing an AI raise, 3 = player facing an AI re-raise.
-- **Reveal:** a held beat if the stake is above 1 → flip → floating numbers → the higher `FinalValue` wins → the loser
-  loses **`Stake` candles** (`LoseLives`). The cannon clicks a notch per raise (`CannonNotch`).
+- **Candles are the chips.** All 6 candles stay lit. When you lose, the candles at stake **slide to the winner's
+  row** and become their lives (`LoseLives(loser, amount)` moves actors between `PlayerLifeCandles` and
+  `OpponentLifeCandles`; `LayoutCandles` places them using the origin and step taken from each level's placed
+  candles in `InitCandleLayout`; `LifeCandle_BP.MoveTo` glides there on Tick). Lives = candle count. 0 candles → cannon.
+- **Your played card turns face-up toward you** during the wager (`PlayerPlayedCard`); his stays face-down.
+- **Reveal:** a held beat if the stake is above 1 → flip → floating numbers → the higher `FinalValue` wins → the stake
+  moves to the winner. The cannon clicks a notch per raise (`CannonNotch`).
 - **Tie:** both cards are buried and `TieCarry += 1`, so the next round's stake is higher. (The jam's random ±1–3
   nudge was removed.)
 - **Round summary** (HUD, top): e.g. "His ten beat your six / You lose three candles / There were still
@@ -56,9 +61,9 @@ release until the next `StartRound`.
 ## HUD (`UI/General_WBP`)
 
 `WagerPrompt_Txt` (bottom) and `Summary_Txt` (top) via `SetPrompt` / `SetSummary` (GM wrappers `ShowPrompt`,
-`ShowSummary`). **The HUD font (CS Aspen Drawn) has NO digits or punctuation**; they render as boxes. Spell
-numbers with `NumberWord` / `CandlesText` and use line breaks instead of punctuation. `csaspendrawn-regular_Font`
-is even worse (no glyphs at all).
+`ShowSummary`). These two use **Roboto** (engine font, safe to ship) because **CS Aspen Drawn has NO digits or
+punctuation** (they render as boxes). Keep the blackletter font for letters-only titles only (`NumberWord`
+spells out numbers if you ever need it). `csaspendrawn-regular_Font` has no glyphs at all.
 
 ## Level flow
 

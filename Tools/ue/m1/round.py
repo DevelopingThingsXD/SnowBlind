@@ -35,8 +35,8 @@ def ai_decide(facing, allow):
 
 
 def W(expr):
-    """Number as a word (the HUD font has no digits)."""
-    return f'(CallFunction|NumberWord :N {expr})'
+    """Number as digits (HUD uses Roboto now; NumberWord kept for the blackletter font)."""
+    return i(expr)
 
 
 def CN(expr):
@@ -45,11 +45,11 @@ def CN(expr):
 
 
 NL = chr(10)
-PROMPT_OPEN = cat(q('At stake  '), CN(STAKE), q('        R  Raise        C  Hold'))
-PROMPT_OPEN_NORAISE = cat(q('At stake  '), CN(STAKE), q('        C  Hold'))
-PROMPT_FACING = cat(q('He pushes a candle forward' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold        R  Raise again'))
-PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold'))
-PROMPT_RERAISED = cat(q('He raises again' + NL + 'At stake  '), CN(STAKE), q('        C  Call        F  Fold'))
+PROMPT_OPEN = cat(q('Stake: '), CN(STAKE), q('        [R] Raise        [C] Hold'))
+PROMPT_OPEN_NORAISE = cat(q('Stake: '), CN(STAKE), q('        [C] Hold'))
+PROMPT_FACING = cat(q('He pushes a candle forward' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold        [R] Raise again'))
+PROMPT_FACING_NORAISE = cat(q('He pushes a candle forward' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold'))
+PROMPT_RERAISED = cat(q('He raises again' + NL + 'Stake: '), CN(STAKE), q('        [C] Call        [F] Fold'))
 
 FLIP = """
   (Class|CardBP|SetTargetRelativeRotation "90.000000,180.000000,0.000000" pc)
@@ -63,7 +63,8 @@ FUNCS = {}
 FUNCS['NumberWord'] = """(fn NumberWord (N)
   (return (Utilities|Array|Get(acopy) (Variables|Default|GetNumberWords) (Math|Integer|Clamp(Integer) N 0 30))))"""
 FUNCS['CandlesText'] = """(fn CandlesText (N)
-  (return (Utilities|String|Append (CallFunction|NumberWord :N N) (select (== N 1) " candle" " candles"))))"""
+  (bind word (Utilities|String|ToString(Integer) N))
+  (return (Utilities|String|Append word (select (== N 1) " candle" " candles"))))"""
 FUNCS['DestroyPlayerPowerUp'] = """(fn DestroyPlayerPowerUp ()
   (bind player (Variables|Default|GetPlayerREF))
   (bind ap (Class|PlayerBP|GetAppliedPowerUp player))
@@ -133,6 +134,8 @@ FUNCS['PlayerWager'] = f"""(fn PlayerWager (Action)
 EVENTS = {}
 EVENTS['StartRound'] = f"""(event Custom|StartRound
   (Variables|Default|SetRoundIndex (+ (Variables|Default|GetRoundIndex) 1))
+  (if (== (Variables|Default|GetRoundIndex) 1)
+    (CallFunction|InitCandleLayout))
   (Variables|Default|SetWagerState 0)
   (Variables|Default|SetPlayerFirst (not (Variables|Default|GetPlayerFirst)))
   (CallFunction|DrawToFive)
@@ -184,11 +187,11 @@ EVENTS['RevealRound'] = f"""(event Custom|RevealRound
     (CallFunction|ShowSummary :Msg {cat(q('A tie at '), W('pv'), q(NL + 'Both cards are buried' + NL + 'The next round is for '), CN('(+ 1 (Variables|Default|GetTieCarry))'))})
     (elif (> pv ov)
       (Variables|Default|SetTieCarry 0)
-      (CallFunction|ShowSummary :Msg {cat(q('Your '), W('pv'), q(' beat his '), W('ov'), q(NL + 'He loses '), CN(STAKE))})
+      (CallFunction|ShowSummary :Msg {cat(q('Your '), W('pv'), q(' beat his '), W('ov'), q(NL + 'You take '), CN(STAKE))})
       (CallFunction|LoseLives :IsPlayer false :Amount {STAKE})
       (else
         (Variables|Default|SetTieCarry 0)
-        (CallFunction|ShowSummary :Msg {cat(q('His '), W('ov'), q(' beat your '), W('pv'), q(NL + 'You lose '), CN(STAKE), q(NL + 'There were still '), W('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards in the deck'))})
+        (CallFunction|ShowSummary :Msg {cat(q('His '), W('ov'), q(' beat your '), W('pv'), q(NL + 'He takes '), CN(STAKE), q(NL + 'There were still '), W('(CallFunction|CountHigherInDeck :Value pv)'), q(' higher cards in the deck'))})
         (CallFunction|LoseLives :IsPlayer true :Amount {STAKE}))))
   (CallFunction|CleanupRound))"""
 
@@ -202,10 +205,10 @@ EVENTS['FoldRound'] = f"""(event Custom|FoldRound
   (Variables|Default|SetTempA (CallFunction|FinalValue :Card pc))
   (Variables|Default|SetTempB (CallFunction|FinalValue :Card oc))
   (if (Variables|Default|GetFoldByPlayer)
-    (CallFunction|ShowSummary :Msg {cat(q('You folded' + NL + 'His card was '), W('(Variables|Default|GetTempB)'))})
+    (CallFunction|ShowSummary :Msg {cat(q('You folded' + NL + 'His card was '), W('(Variables|Default|GetTempB)'), q(NL + 'He takes 1 candle'))})
     (CallFunction|LoseLives :IsPlayer true :Amount 1)
     (else
-      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), W('(Variables|Default|GetTempB)'), q(NL + 'Your '), W('(Variables|Default|GetTempA)'), q(' takes a candle'))})
+      (CallFunction|ShowSummary :Msg {cat(q('He folded his '), W('(Variables|Default|GetTempB)'), q(NL + 'Your '), W('(Variables|Default|GetTempA)'), q(NL + 'You take 1 candle'))})
       (CallFunction|LoseLives :IsPlayer false :Amount 1)))
   (CallFunction|CleanupRound))"""
 

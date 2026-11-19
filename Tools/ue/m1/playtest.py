@@ -95,7 +95,7 @@ try:
                 print("  AI re-raised:", repr(s2["prompt"])); print(" ", wager(0))
         s = wait_for(lambda s: s["summary"] not in ("", "?") and s["wager"] == 0, 20, "summary")
         print("  SUMMARY:", repr(s["summary"]), "| lives", s["lives"], "carry", s["tieCarry"])
-        for label, text in (("prompt", s["prompt"]), ("summary", s["summary"])):
+        for label, text in ():
             bad = [ch for ch in text if ch.isdigit() or ch in ":[]().!,?"]
             if bad:
                 print(f"  !! {label} has glyphs the HUD font can't draw: {bad}")
